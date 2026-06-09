@@ -1,127 +1,184 @@
-const UrlShortnerService=require('../services/urlShortner');
-const {AppError}=require('../middleware/errorHandler');
-const { error } = require('../utils/response');
-const analyticsService=require('../services/analyticsService');
-const cacheService=require('../services/cacheService');
+const urlShortnerService = require('../services/urlShortner');
+const redirectService = require('../services/redirectService');
+const cacheService = require('../services/cacheService');
+const analyticsService = require('../services/analyticsService');
+const logger = require('../utils/logger');
 
-class RedirectController{
-    async redirect(req,res,next){
-        const startTime=process.hrtime();
+class RedirectController {
 
-        try {
-            const {shortCode}=req.params;
-            if(!shortCode || shortCode.length>30){
-                return res.status(404).json({error:'Short URL not found'});
-            }
+  async redirect(req, res, next) {
+    const startTime = process.hrtime();
+    
+    try {
+      const { shortCode } = req.params;
 
-            const url=await UrlShortnerService.findByShortCode(shortCode);
-
-            if(!url){
-                return res.status(404).json({error:'Short URL not found'});
-            }
-
-            const[seconds,nanoseconds]=process.hrtime(startTime);
-            const responseTime=seconds*1000+nanoseconds/100000;
-
-            this.logAnalyticsAsync(url,req,responseTime);
-            return res.redirect(302,url.originalUrl || url.originalUrl);
-        }
-        catch(error){
-            console.error('Redirect error:',error.message);
-            return res.status(500).json({error:'Internal server error'})
-        }
-    }
-
-    trackAnalytics(url, req, responseTime) {
-    setImmediate(async () => {
-      try {
-        const analyticsData = {
-          urlId: url.id,
-          ipAddress: req.ip,
-          userAgent: req.get('user-agent'),
-          referrerUrl: req.get('referer'),
-          responseTime,
-          timestamp: new Date()
-        };
-        if (analyticsData.userAgent) {
-          const ua = this.parseUserAgent(analyticsData.userAgent);
-          analyticsData.browser = ua.browser;
-          analyticsData.os = ua.os;
-          analyticsData.deviceType = ua.device;
-        }
-        await this.storeClickEvent(analyticsData);
-        await analyticsService.incrementRealtimeCounter(url.id);
-        
-        await cacheService.trackPopularUrl(
-          url.short_code || url.shortCode,
-          url.originalUrl || url.original_url
-        );
-
-      } catch (error) {
-        logger.error('Analytics tracking error:', error);
+      if (!shortCode || shortCode.length > 30) {
+        return this.sendErrorResponse(res, 404, 'Short URL not found');
       }
-    });
-  }
 
-  async storeClickEvent(data, retries = 3) {
-    const query = `
-      INSERT INTO click_events (
-        url_id, ip_address, user_agent, referrer_url,
-        browser, os, device_type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
+      const url = await urlShortnerService.findByShortCodeOptimized(shortCode);
 
-    const params = [
-      data.urlId,
-      data.ipAddress,
-      data.userAgent,
-      data.referrerUrl,
-      data.browser,
-      data.os,
-      data.deviceType
-    ];
+      if (!url) {
+        return this.sendErrorResponse(res, 404, 'Short URL not found');
+      }
 
-    for (let i = 0; i < retries; i++) {
-      try {
-        await db.query(query, params);
-        return;
-      } catch (error) {
-        if (i === retries - 1) {
-          logger.error('Failed to store click event after retries:', error);
-        }
-        await this.sleep(100 * Math.pow(2, i)); // Exponential backoff
+      if (url.expires_at && new Date(url.expires_at) < new Date()) {
+        return redirectService.handleExpiredUrl(res, url);
+      }
+
+      const redirectConfig = redirectService.determineRedirectStrategy(url, req);
+
+      let destinationUrl = url.originalUrl || url.original_url;
+      if (url.geo_routing_enabled) {
+        const country = req.headers['cf-ipcountry'] || 'US';
+        destinationUrl = redirectService.getGeoRedirectUrl(url, country);
+      }
+
+      const analyticsData = {
+        urlId: url.id,
+        shortCode: shortCode,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        referrer: req.get('referer'),
+        redirectType: redirectConfig.statusCode,
+        fromCache: url.fromCache || false,
+        requestId: req.requestId
+      };
+
+      return await redirectService.executeRedirect(
+        res,
+        destinationUrl,
+        redirectConfig,
+        analyticsData
+      );
+
+    } catch (error) {
+      logger.error('Redirect error:', error);
+      return this.sendErrorResponse(res, 500, 'Internal server error');
+    } finally {
+      const [seconds, nanoseconds] = process.hrtime(startTime);
+      const responseTime = seconds * 1000 + nanoseconds / 1000000;
+      
+      if (responseTime > 100) {
+        logger.warn(`Slow redirect: ${responseTime}ms for ${req.params.shortCode}`);
       }
     }
   }
 
 
-  parseUserAgent(userAgent) {
-    const ua = userAgent.toLowerCase();
-    
-    let browser = 'Unknown';
-    if (ua.includes('chrome')) browser = 'Chrome';
-    else if (ua.includes('firefox')) browser = 'Firefox';
-    else if (ua.includes('safari')) browser = 'Safari';
-    else if (ua.includes('edge')) browser = 'Edge';
-    else if (ua.includes('opera')) browser = 'Opera';
-    
-    let os = 'Unknown';
-    if (ua.includes('windows')) os = 'Windows';
-    else if (ua.includes('mac os')) os = 'macOS';
-    else if (ua.includes('linux')) os = 'Linux';
-    else if (ua.includes('android')) os = 'Android';
-    else if (ua.includes('ios') || ua.includes('iphone')) os = 'iOS';
-    
-    let device = 'Desktop';
-    if (ua.includes('mobile')) device = 'Mobile';
-    else if (ua.includes('tablet')) device = 'Tablet';
-    
-    return { browser, os, device };
+  async previewRedirect(req, res, next) {
+    try {
+      const { shortCode } = req.params;
+      
+      const url = await urlShortnerService.findByShortCodeOptimized(shortCode);
+      
+      if (!url) {
+        return this.sendErrorResponse(res, 404, 'Short URL not found');
+      }
+
+      if (url.expires_at && new Date(url.expires_at) < new Date()) {
+        return redirectService.handleExpiredUrl(res, url);
+      }
+
+      const config = redirectService.getRedirectConfig(
+        redirectService.REDIRECT_TYPES.TEMPORARY
+      );
+
+      return await redirectService.previewRedirect(res, url, config);
+
+    } catch (error) {
+      logger.error('Preview redirect error:', error);
+      return this.sendErrorResponse(res, 500, 'Internal server error');
+    }
   }
 
-  sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  async getRedirectInfo(req, res, next) {
+    try {
+      const { shortCode } = req.params;
+      
+      const url = await urlShortnerService.findByShortCodeOptimized(shortCode);
+      
+      if (!url) {
+        return res.status(404).json({
+          success: false,
+          message: 'Short URL not found'
+        });
+      }
+
+      const redirectConfig = redirectService.determineRedirectStrategy(url, req);
+
+      return res.json({
+        success: true,
+        data: {
+          shortCode: url.short_code,
+          destinationUrl: url.original_url,
+          redirectType: redirectConfig.statusCode,
+          redirectMessage: redirectConfig.statusMessage,
+          isActive: url.is_active,
+          expiresAt: url.expires_at,
+          createdAt: url.created_at,
+          clickCount: await analyticsService.getClickCount(url.id)
+        }
+      });
+
+    } catch (error) {
+      logger.error('Get redirect info error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      });
+    }
+  }
+
+
+  sendErrorResponse(res, statusCode, message) {
+    const acceptHeader = res.req.get('accept') || '';
+    
+    if (acceptHeader.includes('text/html')) {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${statusCode} - ${message}</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              margin: 0;
+              background: #f5f5f5;
+            }
+            .container {
+              text-align: center;
+              padding: 2rem;
+            }
+            h1 { 
+              color: ${statusCode === 404 ? '#e53e3e' : '#666'};
+              font-size: 4rem;
+              margin: 0;
+            }
+            p { color: #666; font-size: 1.2rem; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>${statusCode}</h1>
+            <p>${message}</p>
+          </div>
+        </body>
+        </html>
+      `;
+      return res.status(statusCode).send(html);
+    } else {
+      return res.status(statusCode).json({
+        success: false,
+        message: message
+      });
+    }
   }
 }
 
-module.exports=new RedirectController();
+module.exports = new RedirectController();
