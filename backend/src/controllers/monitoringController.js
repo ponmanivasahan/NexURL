@@ -51,3 +51,5 @@ class MonitoringController{
     }
   }
 }
+
+module.exports = new MonitoringController();

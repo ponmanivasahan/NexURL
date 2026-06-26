@@ -39,12 +39,8 @@ const rateLimiter=(options={})=>{
             next();
         }
         catch(error){
-            //if redis is down then allow request through(fail open vs fail closed)
-            if(error.message.includes('Redis')){
-                console.error('Rate limiter Redis error:',error);
-                return next();
-            }
-            next(error);
+            console.error('Rate limiter error (bypassing rate limit):', error.message);
+            return next();
         }
     }
 }

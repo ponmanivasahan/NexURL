@@ -20,7 +20,22 @@ let shutdownTimer;
 
 app.use(helmet());
 app.use(cors({
-    origin:process.env.BASE_URL,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      
+      // Allow any localhost origins in development
+      if (process.env.NODE_ENV === 'development') {
+        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+          return callback(null, true);
+        }
+      }
+      
+      if (origin === process.env.BASE_URL) {
+        return callback(null, true);
+      }
+      
+      callback(new Error('Not allowed by CORS'));
+    },
     methods:['GET','POST','PUT','DELETE','PATCH'],
     allowedHeaders:['Content-Type','Authorization'],
     credentials:true
@@ -44,6 +59,10 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });
+});
+
+app.get('/keep-alive', (req, res) => {
+  res.status(200).send('Server is alive and running');
 });
 
 // API routes
@@ -107,6 +126,18 @@ const startServer = async () => {
     server = app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
       logger.info(`Health check: http://localhost:${PORT}/health`);
+
+      // Keep-alive self-ping to prevent sleep on free hosting tiers
+      const http = require('http');
+      setInterval(() => {
+        http.get(`http://localhost:${PORT}/keep-alive`, (res) => {
+          if (res.statusCode === 200) {
+            logger.debug('Keep-alive self-ping successful');
+          }
+        }).on('error', (err) => {
+          logger.error('Keep-alive ping failed: ' + err.message);
+        });
+      }, 10 * 60 * 1000); // Ping every 10 minutes
 
       if (process.env.NODE_ENV === 'production') {
         setTimeout(async () => {

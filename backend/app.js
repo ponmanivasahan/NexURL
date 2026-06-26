@@ -1,3 +1,3 @@
 const { startServer } = require('./src/main');
 
-startServer();
+startServer(); // Trigger nodemon restart

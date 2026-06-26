@@ -161,23 +161,41 @@ class RedirectService {
   }
 
   async trackAnalytics(data) {
+    // Fire and forget - do not block redirect responses.
     setImmediate(async () => {
       try {
-        const clickData = {
+        const analyticsData = {
           urlId: data.urlId,
           shortCode: data.shortCode,
           ipAddress: data.ipAddress,
           userAgent: data.userAgent,
           referrer: data.referrer,
-          redirectType: data.redirectType,
-          fromCache: data.fromCache,
-          timestamp: new Date()
+          responseTime: data.responseTime,
+          originalUrl: data.originalUrl
         };
 
-        await analyticsService.recordClick(clickData);
-        
+        if (analyticsData.userAgent) {
+          const ua = analyticsData.userAgent.toLowerCase();
+
+          if (ua.includes('chrome')) analyticsData.browser = 'Chrome';
+          else if (ua.includes('firefox')) analyticsData.browser = 'Firefox';
+          else if (ua.includes('safari')) analyticsData.browser = 'Safari';
+          else analyticsData.browser = 'Other';
+
+          if (ua.includes('windows')) analyticsData.os = 'Windows';
+          else if (ua.includes('mac')) analyticsData.os = 'macOS';
+          else if (ua.includes('linux')) analyticsData.os = 'Linux';
+          else analyticsData.os = 'Other';
+
+          if (ua.includes('mobile')) analyticsData.deviceType = 'Mobile';
+          else if (ua.includes('tablet')) analyticsData.deviceType = 'Tablet';
+          else analyticsData.deviceType = 'Desktop';
+        }
+
+        await analyticsService.recordClickAsync(analyticsData);
       } catch (error) {
-        logger.error('Analytics tracking failed:', error);
+        // Do not affect redirect flow if analytics fails.
+        logger.error('Analytics queue error:', error);
       }
     });
   }

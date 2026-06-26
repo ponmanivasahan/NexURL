@@ -14,8 +14,16 @@ class Database{
                 user:process.env.DB_USER,
                 password:process.env.DB_PASSWORD,
                 database:process.env.DB_NAME,
+                // Add SSL configuration for TiDB
+                ssl: process.env.DB_CERT ? {
+                    ca: process.env.DB_CERT.replace(/\\n/g, '\n'),
+                    minVersion: 'TLSv1.2'
+                } : {
+                    minVersion: 'TLSv1.2',
+                    rejectUnauthorized: true
+                },
                 waitForConnections:true,
-                connectionLimit:parseInt(process.env.DB_POOL_MAX),
+                connectionLimit:parseInt(process.env.DB_POOL_MAX) || 10,
                 queueLimit:0,
                 enableKeepAlive:true,
                 keepAliveInitialDelay:0
@@ -45,11 +53,11 @@ class Database{
     async query(sql, params) {
     const start = Date.now();
     try {
-      const [results] = await this.pool.execute(sql, params);
+      const [results] = await this.pool.query(sql, params);
       const duration = Date.now() - start;
       
       if (process.env.NODE_ENV === 'development') {
-        console.log('Query executed', { sql, duration, rows: results.length });
+        // console.log('Query executed', { sql, duration, rows: results.length });
       }
       
       return results;

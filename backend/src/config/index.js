@@ -1,10 +1,17 @@
 const db=require('./db')
 const redis=require('./redis')
+const queueManager = require('./queue')
+
 const initializeConfigs=async()=>{
     try {
         await db.initialize();
         await redis.initialize();
-        console.log('All configurations initialized successfully');
+        if (redis.isConnected) {
+            await queueManager.initialize();
+            console.log('All configurations initialized successfully (with Redis & Queues)');
+        } else {
+            console.warn('Redis is not connected. Queue workers skipped. App will run in degraded mode.');
+        }
     } 
     catch(error){
         console.error('Configuration initialization failed:', error.message);
@@ -13,5 +20,5 @@ const initializeConfigs=async()=>{
 }
 
 module.exports={
-    db,redis,initializeConfigs
+    db,redis,queueManager,initializeConfigs
 }

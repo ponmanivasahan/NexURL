@@ -12,20 +12,27 @@ class RedisClient{
             this.client=new Redis({
                 host:process.env.REDIS_HOST,
                 port:process.env.REDIS_PORT,
+                username:process.env.REDIS_USER || undefined,
                 password:process.env.REDIS_PASSWORD || undefined,
                 db:process.env.REDIS_DB,
                 retryStrategy:()=>null,
                 maxRetriesPerRequest:3,
                 enableReadyCheck:true,
-                lazyConnect:true
+                lazyConnect:true,
+                enableOfflineQueue:false
             });
 
             this.client.on('connect',()=>{
                 console.log('Redis Connecting');
             });
-            this.client.on('ready',()=>{
+            this.client.on('ready', async ()=>{
                 this.isConnected=true;
                 console.log('Redis Connected Successfully');
+                try {
+                    await this.client.config('SET', 'maxmemory-policy', 'noeviction');
+                } catch(e) {
+                    // Ignore if cloud provider blocks CONFIG SET
+                }
             });
             this.client.on('error',(error) => {
                 console.error('Redis connection error:', error.message);

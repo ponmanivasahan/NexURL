@@ -36,6 +36,8 @@ class CacheService{
             if (data !== null && data !== undefined) {
               await redis.set(key, JSON.stringify(data), ttl);
             }
+            
+            return data;
         } catch (error) {
             logger.error(`Cache aside error for key ${key}:`, error);
             return await fetchFunction();

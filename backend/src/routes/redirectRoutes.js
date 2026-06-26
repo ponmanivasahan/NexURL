@@ -8,7 +8,7 @@ router.get('/:shortCode',
     windowMs: 60 * 1000,
     max: 100
   }),
-  redirectController.redirect
+  (req, res, next) => redirectController.redirect(req, res, next)
 );
 
 router.get('/p/:shortCode',
@@ -16,7 +16,7 @@ router.get('/p/:shortCode',
     windowMs: 60 * 1000,
     max: 50
   }),
-  redirectController.previewRedirect
+  (req, res, next) => redirectController.previewRedirect(req, res, next)
 );
 
 router.get('/api/v1/redirect/:shortCode/info',
@@ -24,7 +24,7 @@ router.get('/api/v1/redirect/:shortCode/info',
     windowMs: 60 * 1000,
     max: 30
   }),
-  redirectController.getRedirectInfo
+  (req, res, next) => redirectController.getRedirectInfo(req, res, next)
 );
 
 module.exports = router;

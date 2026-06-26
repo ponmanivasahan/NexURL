@@ -40,6 +40,7 @@ class RedirectController {
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
         referrer: req.get('referer'),
+        originalUrl: url.original_url || url.originalUrl,
         redirectType: redirectConfig.statusCode,
         fromCache: url.fromCache || false,
         requestId: req.requestId
@@ -135,12 +136,23 @@ class RedirectController {
     const acceptHeader = res.req.get('accept') || '';
     
     if (acceptHeader.includes('text/html')) {
+      // Escape HTML to prevent XSS
+      const escapeHtml = (str) => String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+      const safeStatusCode = escapeHtml(statusCode);
+      const safeMessage = escapeHtml(message);
+
       const html = `
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
-          <title>${statusCode} - ${message}</title>
+          <title>${safeStatusCode} - ${safeMessage}</title>
           <style>
             body {
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -149,24 +161,25 @@ class RedirectController {
               align-items: center;
               min-height: 100vh;
               margin: 0;
-              background: #f5f5f5;
+              background: #f7f8fc;
+              color: #1a1a2e;
             }
             .container {
               text-align: center;
               padding: 2rem;
             }
             h1 { 
-              color: ${statusCode === 404 ? '#e53e3e' : '#666'};
+              color: ${statusCode === 404 ? '#ef4444' : '#5a5a7a'};
               font-size: 4rem;
               margin: 0;
             }
-            p { color: #666; font-size: 1.2rem; }
+            p { color: #5a5a7a; font-size: 1.2rem; }
           </style>
         </head>
         <body>
           <div class="container">
-            <h1>${statusCode}</h1>
-            <p>${message}</p>
+            <h1>${safeStatusCode}</h1>
+            <p>${safeMessage}</p>
           </div>
         </body>
         </html>

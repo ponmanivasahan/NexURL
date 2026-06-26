@@ -38,9 +38,43 @@ class AuthService{
 
         const loginIdentifier = typeof identifier === 'string' ? identifier.trim() : identifier;
 
-        const user=await User.findByLoginIdentifier(loginIdentifier);
+        let user=await User.findByLoginIdentifier(loginIdentifier);
         if(!user){
-            throw new AppError('Invalid email or password',401);
+            // If the login identifier is a valid email, auto-register the user!
+            const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginIdentifier);
+            if (isEmail) {
+                try {
+                    // Extract username from email
+                    let baseUsername = loginIdentifier.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+                    if (baseUsername.length < 3) {
+                        baseUsername = 'user_' + baseUsername;
+                    }
+                    let username = baseUsername.slice(0, 30);
+                    
+                    // Ensure username is unique
+                    let userCheck = await User.findByLoginIdentifier(username);
+                    while (userCheck) {
+                        const suffix = Math.floor(100 + Math.random() * 900).toString();
+                        username = (baseUsername.slice(0, 26) + suffix);
+                        userCheck = await User.findByLoginIdentifier(username);
+                    }
+                    
+                    // Create user directly
+                    await User.create({
+                        username,
+                        email: loginIdentifier,
+                        password
+                    });
+                    
+                    // Fetch full user record
+                    user = await User.findByLoginIdentifier(loginIdentifier);
+                } catch (regError) {
+                    console.error('Auto-registration failed:', regError.message);
+                    throw new AppError('Invalid email or password', 401);
+                }
+            } else {
+                throw new AppError('Invalid email or password', 401);
+            }
         }
 
         if(!user.is_active){

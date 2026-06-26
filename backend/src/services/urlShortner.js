@@ -234,11 +234,20 @@ class UrlShortnerService{
 
     return suspiciousPatterns.some(pattern=>lowerUrl.includes(pattern))
   }
-
   async getUserUrls(userId,page=1,limit=10){
     const offset=(page-1)*limit;
-    const query=`SELECT id,original_url,short_code,custom_alias,is_custom,is_active,expires_at,created_at
-    FROM urls WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    const query=`
+      SELECT u.id, u.original_url as originalUrl, u.short_code as shortCode, 
+             u.custom_alias as customAlias, u.is_custom as isCustom, 
+             u.is_active as isActive, u.expires_at as expiresAt, u.created_at as createdAt,
+             COUNT(c.id) as clicks
+      FROM urls u
+      LEFT JOIN click_events c ON u.id = c.url_id
+      WHERE u.user_id = ?
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
 
     const countQuery=`SELECT COUNT(*) as total FROM urls WHERE user_id=?`;
 
@@ -258,7 +267,6 @@ class UrlShortnerService{
         throw new AppError('Failed to fetch URLs',500);
     }
   }
-
   //delete a url
   async deleteUrl(shortCode,userId){
     const url=await db.query(
@@ -273,7 +281,7 @@ class UrlShortnerService{
       throw new AppError('Not Authorized to delete this URL',403)
     }
     await db.query(
-      'UPDATE urls SET is_active=FALSE WHERE short_code=?',[shortCode]
+      'DELETE FROM urls WHERE short_code=?',[shortCode]
     );
     await redis.del(`url:${shortCode}`);
   }

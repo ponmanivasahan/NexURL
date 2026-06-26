@@ -39,7 +39,7 @@ class AuthController{
     async getProfile(req,res,next){
         try {
             const User=require('../models/User');
-            const user=await User.findByEmail(req.user.id);
+            const user=await User.findById(req.user.id);
 
             if (!user) {
         return ApiResponse.notFound(res, 'User not found');

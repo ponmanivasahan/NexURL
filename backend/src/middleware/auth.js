@@ -30,7 +30,7 @@ const authenticate=(req,res,next)=>{
 
 const authorize=(...roles)=>{
   return (req,res,next)=>{
-    if(req.user){
+    if(!req.user){
       throw new AppError('Authentication required',401);
     }
     if(!roles.includes(req.user.role)){
@@ -41,6 +41,36 @@ const authorize=(...roles)=>{
   }
 }
 
+const optionalAuthenticate = (req, res, next) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return next();
+      }
+
+      const parts = authHeader.split(' ');
+      if (parts.length !== 2 || parts[0] !== 'Bearer') {
+        return next();
+      }
+      
+      const token = parts[1];
+      try {
+        const decoded = authService.verifyAccessToken(token);
+        req.user = {
+          id: decoded.userId,
+          email: decoded.email,
+          username: decoded.username
+        };
+        req.tokenExp = decoded.exp;
+      } catch (err) {
+        // Ignore invalid token for optional auth
+      }
+      next();
+    } catch (error) {
+       next(error);
+    }
+}
+
 module.exports={
-  authenticate,authorize
+  authenticate, authorize, optionalAuthenticate
 }
