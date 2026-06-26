@@ -30,14 +30,21 @@ app.use(cors({
         }
       }
       
-      if (origin === process.env.BASE_URL) {
+      // Check against allowed origins
+      const allowedOrigins = [
+        process.env.BASE_URL,
+        process.env.FRONTEND_URL,
+        'https://nex-url.vercel.app'
+      ].filter(Boolean); // remove undefined/null
+
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
       
       callback(new Error('Not allowed by CORS'));
     },
-    methods:['GET','POST','PUT','DELETE','PATCH'],
-    allowedHeaders:['Content-Type','Authorization'],
+    methods:['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
+    allowedHeaders:['Content-Type','Authorization','X-Requested-With'],
     credentials:true
 }));
 
